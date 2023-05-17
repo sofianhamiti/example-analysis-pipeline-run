@@ -1,0 +1,13 @@
+{
+  "ProjectName": "reproducible-run",
+  "EnvironmentVariablesOverride": [
+    {
+      "Name": "GIT_REPO",
+      "Value": "https://github.com/deep-machine-learning/example-reproducible-analysis.git"
+    },
+    {
+      "Name": "GIT_COMMIT",
+      "Value": "312ffa72cb9c3821138f261804b5176bf89193d5"
+    }
+  ]
+}
