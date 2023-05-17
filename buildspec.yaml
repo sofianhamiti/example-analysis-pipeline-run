@@ -1,0 +1,45 @@
+version: 0.2
+
+env:
+  git-credential-helper: yes
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - apt-get update
+      - apt-get install -y uuid-runtime
+      - nohup /usr/local/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2&
+      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+
+  pre_build:
+    commands:
+      - echo "===== CLONING REPO ====="
+      - git clone ${GIT_REPO}
+      - folder_name=$(basename "${GIT_REPO}" .git)
+      - cd ${folder_name}
+      - git checkout ${GIT_COMMIT}
+      - pip install -r requirements.txt
+      - echo "===== SETUP RUN VARIABLES ====="
+      - yaml=$(cat environment/config.yaml)
+      - ANALYSIS_NAME=${PWD##*/}
+      - ANALYSIS_VERSION=$(uuidgen | cut -c-8)
+      - ANALYSIS_BUCKET="s3://sagemaker-${AWS_REGION}-${AWS_ACCOUNT_ID}"
+      - echo ${ANALYSIS_BUCKET}
+
+  build:
+    commands:
+      - echo "===== BUILDING CONTAINER IMAGE ====="
+      - CONTAINER_FULLNAME="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ANALYSIS_NAME}:${ANALYSIS_VERSION}"
+      - aws ecr describe-repositories --repository-names ${ANALYSIS_NAME} > /dev/null 2>&1 || aws ecr create-repository --repository-name ${ANALYSIS_NAME} > /dev/null
+      - aws ecr get-login-password --region ${AWS_REGION}
+      - docker build --no-cache -t ${ANALYSIS_NAME} -f environment/Dockerfile .
+      - docker tag ${ANALYSIS_NAME} ${CONTAINER_FULLNAME}
+      - echo "===== PUSHING CONTAINER IMAGE TO ECR ====="
+      - docker push ${CONTAINER_FULLNAME}
+
+  post_build:
+    commands:
+      - echo "===== RUNNING THE ANALYSIS ON AWS ====="
+      - python .reproducible_run/job.py --job_name ${ANALYSIS_NAME}-${ANALYSIS_VERSION} --container_image ${CONTAINER_FULLNAME} --entrypoint code/entrypoint.sh
+      - echo "===== ANALYSIS EXECUTED SUCCESSFULLY ====="
